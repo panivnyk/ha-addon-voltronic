@@ -1,7 +1,7 @@
-name: "Voltronic"
-description: "Monitor and control Voltronic based inverters from Home Assistant."
-version: "1.0.2"
-slug: "voltronic"
+name: "Voltronic Custom"
+description: "Monitor and control Voltronic based inverters from Home Assistant with dynamic HID selection."
+version: "1.0.3"
+slug: "voltronic_custom"
 init: false
 udev: true
 devices:
