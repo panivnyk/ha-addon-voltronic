@@ -25,9 +25,16 @@ case "${DEVICE}" in
     usb-serial)
         DEVICE_PATH="/dev/ttyUSB0"
         ;;
-    usb)
-        DEVICE_PATH="/dev/hidraw0"
-        ;;
+     usb)
+        if [ -e /dev/hidraw0 ]; then
+            DEVICE_PATH="/dev/hidraw0"
+        elif [ -e /dev/hidraw1 ]; then
+            DEVICE_PATH="/dev/hidraw1"
+        else
+            bashio::log.error "Voltronic HID device not found"
+            exit 1
+        fi
+    ;;
     *)
         bashio::log.error "Invalid device type: ${DEVICE}"
         exit 1
