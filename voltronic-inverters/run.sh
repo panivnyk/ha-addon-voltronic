@@ -25,16 +25,37 @@ case "${DEVICE}" in
     usb-serial)
         DEVICE_PATH="/dev/ttyUSB0"
         ;;
-     usb)
-        if [ -e /dev/hidraw0 ]; then
-            DEVICE_PATH="/dev/hidraw0"
-        elif [ -e /dev/hidraw1 ]; then
-            DEVICE_PATH="/dev/hidraw1"
-        else
-            bashio::log.error "Voltronic HID device not found"
+        usb)
+        DEVICE_PATH=""
+
+        for HID in /dev/hidraw*; do
+            [ -e "$HID" ] || continue
+
+            N="${HID##*/}"
+            D=$(readlink -f "/sys/class/hidraw/$N/device" 2>/dev/null || true)
+
+            while [ "$D" != "/" ] && [ -n "$D" ]; do
+                if [ -f "$D/idVendor" ] && [ -f "$D/idProduct" ]; then
+                    VID=$(cat "$D/idVendor" 2>/dev/null || true)
+                    PID=$(cat "$D/idProduct" 2>/dev/null || true)
+
+                    if [ "$VID" = "0665" ] && [ "$PID" = "5161" ]; then
+                        DEVICE_PATH="$HID"
+                        break 2
+                    fi
+                fi
+
+                D="${D%/*}"
+            done
+        done
+
+        if [ -z "$DEVICE_PATH" ]; then
+            bashio::log.error "Voltronic USB HID device 0665:5161 not found"
             exit 1
         fi
-    ;;
+
+        bashio::log.info "Found Voltronic USB HID device: $DEVICE_PATH"
+        ;;
     *)
         bashio::log.error "Invalid device type: ${DEVICE}"
         exit 1
