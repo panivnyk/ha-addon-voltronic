@@ -1,9 +1,10 @@
 name: "Voltronic Custom"
 description: "Monitor and control Voltronic based inverters from Home Assistant with dynamic HID selection."
-version: "1.0.3"
+version: "1.0.4"
 slug: "voltronic_custom"
 init: false
 udev: true
+usb: true
 devices:
   - /dev/ttyS0
   - /dev/ttyUSB0
