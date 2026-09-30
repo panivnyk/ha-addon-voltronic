@@ -1,43 +1,58 @@
 #!/usr/bin/with-contenv bashio
+
 set -e
 
-# Paths to configuration files
 INVERTER_CONFIG="/etc/inverter/inverter.conf"
 MQTT_CONFIG="/etc/inverter/mqtt.json"
 
-# Check if files exist
+# Check configuration files
 if [ ! -f "$INVERTER_CONFIG" ]; then
-    bashio::log.error "The inverter configuration file ($INVERTER_CONFIG) is missing!"
+    bashio::log.error "Inverter configuration file not found: $INVERTER_CONFIG"
     exit 1
 fi
 
 if [ ! -f "$MQTT_CONFIG" ]; then
-    bashio::log.error "The MQTT configuration file ($MQTT_CONFIG) is missing!"
+    bashio::log.error "MQTT configuration file not found: $MQTT_CONFIG"
     exit 1
 fi
 
-# Update the inverter.conf file
+# Get device type from add-on configuration
 DEVICE=$(bashio::config 'device_type')
+
+bashio::log.info "Configured device type: $DEVICE"
+
 case "${DEVICE}" in
     serial)
         DEVICE_PATH="/dev/ttyS0"
+        bashio::log.info "Using serial device: $DEVICE_PATH"
         ;;
+
     usb-serial)
         DEVICE_PATH="/dev/ttyUSB0"
+        bashio::log.info "Using USB serial device: $DEVICE_PATH"
         ;;
-        usb)
+
+    usb)
+        bashio::log.info "USB auto-detection started"
+
         DEVICE_PATH=""
 
         for HID in /dev/hidraw*; do
             [ -e "$HID" ] || continue
 
             N="${HID##*/}"
+
             D=$(readlink -f "/sys/class/hidraw/$N/device" 2>/dev/null || true)
 
+            bashio::log.info "Checking HID device: $HID"
+
             while [ "$D" != "/" ] && [ -n "$D" ]; do
+
                 if [ -f "$D/idVendor" ] && [ -f "$D/idProduct" ]; then
                     VID=$(cat "$D/idVendor" 2>/dev/null || true)
                     PID=$(cat "$D/idProduct" 2>/dev/null || true)
+
+                    bashio::log.info "Detected HID $HID: VID=$VID PID=$PID"
 
                     if [ "$VID" = "0665" ] && [ "$PID" = "5161" ]; then
                         DEVICE_PATH="$HID"
@@ -56,42 +71,54 @@ case "${DEVICE}" in
 
         bashio::log.info "Found Voltronic USB HID device: $DEVICE_PATH"
         ;;
+
     *)
         bashio::log.error "Invalid device type: ${DEVICE}"
         exit 1
         ;;
 esac
 
+bashio::log.info "Selected inverter device: $DEVICE_PATH"
+
+# Update inverter.conf with detected device
 echo "[DEBUG] Updating inverter.conf file with device: $DEVICE_PATH"
+
 sed -i "s|^device=.*|device=${DEVICE_PATH}|" "$INVERTER_CONFIG" || {
     bashio::log.error "Error updating $INVERTER_CONFIG"
     exit 1
 }
 
+bashio::log.info "Inverter configuration updated"
+
 # Update the mqtt.json file
 BROKER_HOST=$(bashio::config 'mqtt_broker_host')
-USERNAME=$(bashio::config 'mqtt_username')
-PASSWORD=$(bashio::config 'mqtt_password')
+MQTT_USERNAME=$(bashio::config 'mqtt_username')
+MQTT_PASSWORD=$(bashio::config 'mqtt_password')
 DEVICE_NAME=$(bashio::config 'device_name')
 
-echo "[DEBUG] Updating mqtt.json file"
-jq --arg server "$BROKER_HOST" \
-   --arg username "$USERNAME" \
-   --arg password "$PASSWORD" \
-   --arg devicename "$DEVICE_NAME" \
-   '.server = $server | .username = $username | .password = $password | .devicename = $devicename' \
-   "$MQTT_CONFIG" > "${MQTT_CONFIG}.tmp" && mv "${MQTT_CONFIG}.tmp" "$MQTT_CONFIG" || {
-    bashio::log.error "Error updating $MQTT_CONFIG"
-    exit 1
-}
+bashio::log.info "Configuring MQTT connection"
+bashio::log.info "MQTT broker: ${BROKER_HOST}"
+bashio::log.info "MQTT device name: ${DEVICE_NAME}"
 
-# Debug: Print updated file contents
-echo "[DEBUG] Updated content of inverter.conf:"
-cat "$INVERTER_CONFIG"
+# Update MQTT configuration
+jq \
+    --arg host "$BROKER_HOST" \
+    --arg username "$MQTT_USERNAME" \
+    --arg password "$MQTT_PASSWORD" \
+    --arg device_name "$DEVICE_NAME" \
+    '
+    .broker = $host |
+    .username = $username |
+    .password = $password |
+    .device_name = $device_name
+    ' \
+    "$MQTT_CONFIG" > "${MQTT_CONFIG}.tmp"
 
-echo "[DEBUG] Updated content of mqtt.json:"
-cat "$MQTT_CONFIG"
+mv "${MQTT_CONFIG}.tmp" "$MQTT_CONFIG"
 
-bashio::log.info "Configuration completed successfully."
+bashio::log.info "MQTT configuration updated"
 
-exec /opt/inverter-mqtt/entrypoint.sh
+# Start inverter poller
+bashio::log.info "Starting Voltronic inverter poller"
+
+/opt/inverter-cli/bin/inverter_poller -d -1
